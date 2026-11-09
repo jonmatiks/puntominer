@@ -1,0 +1,45 @@
+[package]
+name = "puntominer"
+version = "0.2.0"
+edition = "2024"
+description = "A Bitcoin block miner"
+homepage = "https://puntominer.com"
+
+[[bin]]
+name = "puntominer"
+path = "src/main.rs"
+
+[dependencies]
+chrono = "0.4"
+serde_json = "1.0"
+signal-hook = "0.4"
+bitcoin = "0.32"
+wgpu = "30"
+bytemuck = { version = "1.25", features = ["derive"] }
+pollster = "1.0"
+sha2 = "0.11"
+chacha20poly1305 = "0.11"
+clap = { version = "4.6.7", default-features = false, features = [
+    "std",
+    "env",
+    "help",
+    "usage",
+    "error-context",
+    "suggestions",
+    "string",
+] }
+
+[dev-dependencies]
+noise_sv2 = "2.0"
+mining_sv2 = "13.0"
+common_messages_sv2 = "10.0"
+binary_sv2 = "8.0"
+rand = "0.10"
+# `noise_sv2` 2.0 takes its RNG through rand 0.8's traits, so the one test that
+# hands it one keeps that version under its own name. It costs no build:
+# `noise_sv2` and its `secp256k1` pull rand 0.8 in regardless.
+rand_08 = { package = "rand", version = "0.8" }
+
+[lints.clippy]
+wildcard_imports = "warn"
+enum_glob_use = "warn"

@@ -1,0 +1,99 @@
+#!/usr/bin/env bash
+#
+# Mine for a Stratum V2 pool. `m` for a node, `v1` and `v2` for a pool.
+#
+#   ./v2                                        # the default pool, over V2
+#   ./v2 stratum2+tcp://host:3350/9aujRnQP...   # another pool, key and all, in one paste
+#   ./v2 127.0.0.1:3350 bcrt1q...               # a local pool on regtest, which needs its own address
+#   ./v2 127.0.0.1:3350 bcrt1q... --device cpu  # and anything else the miner takes
+#
+# Three things differ from `./v1`, and all three are the protocol's rather
+# than this script's:
+#
+#   1. The session is encrypted and the *server* is authenticated. The pool's
+#      authority key is what its certificate is checked against, and without
+#      one this refuses any pool that is not on the loopback — a certificate
+#      checked against nothing authenticates nothing, and there is deliberately
+#      no trust-on-first-use. The key is public: a pool publishes it precisely
+#      so that miners pin it, which is why it may be a flag where a credential
+#      may not. The default in `v2.env` is the URL the pool publishes, and it
+#      carries the protocol, the host, the port and the key at once.
+#   2. The protocol cannot be discovered. Pool A serves V1 and V2 on the
+#      same port and tells them apart from the first bytes the *client* sends,
+#      so a wrong guess is a hang rather than an error. This always passes
+#      `--pool-protocol v2`, which is also why a `stratum+tcp://` URL typed
+#      here is refused for disagreeing with it rather than quietly running V1.
+#   3. There is no password field, and the difficulty request points the
+#      other way. `MINER_POOL_PASS` has no V2 counterpart and a run that sets
+#      it is told so once. What replaces it is the channel's `max_target`,
+#      from `MINER_POOL_DIFFICULTY` — but that is a *floor* under the
+#      difficulty rather than a request to come down, so a pool honours
+#      "difficulty 1" by serving 512, and Pool A does. The lever that
+#      lowers it is the hash rate the pool sizes its target from, and `v2.env`
+#      claims the measured one, because the difference is 212x: Pool A opens
+#      at difficulty 512 for a client that says nothing about itself, and at
+#      2.42 for one that says 590 MH/s — one share every 15 seconds rather than
+#      one an hour. `--pool-hashrate` overrides it, and `--pool-hashrate 0`
+#      claims nothing and lets the client report its own measured rate after
+#      the first job instead.
+#
+# The pool and the rest of the defaults live in `v2.env`, beside this script,
+# where the environment and any typed flag beat them. A typed `--config`
+# replaces that file rather than adding to it, and `--config ""` drops it.
+#
+# Both positional arguments are optional, because those are the only two that
+# change between runs. Everything after them reaches the miner untouched, and
+# the last spelling of a setting wins — so a flag typed here overrides what
+# this script chose. `./m --help` lists them, and every MINER_* variable still
+# works as it did.
+#
+# This contacts no node. The pool decides what is mined and owns the coinbase,
+# so the worker name reaches it as a name to be credited rather than as a
+# script in a transaction — which also means the address has to belong to the
+# pool's chain, and the default is a mainnet one.
+
+set -euo pipefail
+
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$repo_dir"
+
+# This script's own two arguments are explained here; everything else is the
+# miner's and is explained by `./m --help`.
+case "${1:-}" in
+    -h | --help)
+        sed -n '3,54p' "${BASH_SOURCE[0]}" | sed 's|^#\s\?||'
+        exit 0
+        ;;
+esac
+
+chosen=()
+
+# A leading dash is a flag rather than a hostname, which is what lets
+# `./v2 --device cpu` mean the default pool instead of a failed DNS lookup.
+if [[ $# -gt 0 && "$1" != -* ]]; then
+    chosen+=(--pool "$1")
+    shift
+
+    # A payout address for a chain that is not mainnet. A pool refuses to open
+    # a channel for an address it cannot decode, and says so with the address
+    # in the message. The binary builds the worker name from it.
+    if [[ $# -gt 0 && "$1" != -* ]]; then
+        chosen+=(--address "$1")
+        shift
+    fi
+fi
+
+# What this script chose goes first and what was typed goes last, because the
+# last spelling of a setting is the one that wins. `--mode` and
+# `--pool-protocol` stay flags rather than entries in `v2.env` because they
+# define this script: an exported MINER_MODE=mine would beat anything a file
+# says, and `./v2` would mine against a node. `--pool-protocol` is also the
+# exception to that ordering in spirit rather than in mechanism: a URL naming
+# the other protocol is refused for disagreeing with it, which is the one place
+# two settings describe one fact and guessing between them would be wrong.
+exec cargo run --release -- \
+    --config v2.env \
+    --mode stratum \
+    --pool-protocol v2 \
+    ${chosen[@]+"${chosen[@]}"} \
+    "$@"

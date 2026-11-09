@@ -1,0 +1,6 @@
+{
+  // Line length is not enforced. Tables, URLs, code and one-line changelog
+  // entries cannot be wrapped, and prose is wrapped by hand at whatever width
+  // reads best in its file.
+  "MD013": false
+}

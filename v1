@@ -1,0 +1,73 @@
+#!/usr/bin/env bash
+#
+# Mine for a Stratum V1 pool. `m` for a node, `v1` and `v2` for a pool.
+#
+#   ./v1                                        # the default pool, as every measurement was taken
+#   ./v1 pool.example.com:3333                  # another pool, same defaults otherwise
+#   ./v1 127.0.0.1:3333 bcrt1q...               # a local pool on regtest, which needs its own address
+#   ./v1 127.0.0.1:3333 bcrt1q... --device cpu  # and anything else the miner takes
+#
+# `./v2` is the same thing over Stratum V2, and the two are separate scripts
+# because the protocol is the one thing a client cannot discover: Pool A
+# serves both on one port and tells them apart from the first bytes the
+# *client* sends, so a wrong guess is a hang rather than an error. This always
+# passes `--pool-protocol v1`, which is also why a `stratum2+tcp://` URL typed
+# here is refused for disagreeing with it rather than quietly running V2.
+#
+# The pool and the rest of the defaults live in `v1.env`, beside this script,
+# where the environment and any typed flag beat them. A typed `--config`
+# replaces that file rather than adding to it, and `--config ""` drops it.
+#
+# Both positional arguments are optional, because those are the only two that
+# change between runs. Everything after them reaches the miner untouched, and
+# the last spelling of a setting wins — so a flag typed here overrides what
+# this script chose. `./m --help` lists them, and every MINER_* variable still
+# works as it did.
+#
+# This contacts no node. The pool decides what is mined and owns the coinbase,
+# so the worker name reaches it as a name to be credited rather than as a
+# script in a transaction — which also means the address has to belong to the
+# pool's chain, and the default is a mainnet one.
+
+set -euo pipefail
+
+repo_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+cd "$repo_dir"
+
+# This script's own two arguments are explained here; everything else is the
+# miner's and is explained by `./m --help`.
+case "${1:-}" in
+    -h | --help)
+        sed -n '3,30p' "${BASH_SOURCE[0]}" | sed 's|^#\s\?||'
+        exit 0
+        ;;
+esac
+
+chosen=()
+
+# A leading dash is a flag rather than a hostname, which is what lets
+# `./v1 --device cpu` mean the default pool instead of a failed DNS lookup.
+if [[ $# -gt 0 && "$1" != -* ]]; then
+    chosen+=(--pool "$1")
+    shift
+
+    # A payout address for a chain that is not mainnet. A pool refuses to
+    # authorize an address it cannot decode, and says so with the address in
+    # the message. The binary builds the worker name from it.
+    if [[ $# -gt 0 && "$1" != -* ]]; then
+        chosen+=(--address "$1")
+        shift
+    fi
+fi
+
+# What this script chose goes first and what was typed goes last, because the
+# last spelling of a setting is the one that wins. `--mode` and
+# `--pool-protocol` stay flags rather than entries in `v1.env` because they
+# define this script: an exported MINER_MODE=mine would beat anything a file
+# says, and `./v1` would mine against a node.
+exec cargo run --release -- \
+    --config v1.env \
+    --mode stratum \
+    --pool-protocol v1 \
+    ${chosen[@]+"${chosen[@]}"} \
+    "$@"
